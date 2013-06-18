@@ -88,7 +88,13 @@ forever' a = let a' = a >> a' in a'
 -- | Provides a unified API for addressing processes
 class Addressable a where
   -- | Send a message to the target asynchronously
-  sendTo  :: (Serializable m) => a -> m -> Process ()
+  sendTo :: (Serializable m) => a -> m -> Process ()
+  sendTo a m = do
+    mPid <- resolve a
+    case mPid of
+      Nothing -> return ()
+      Just p  -> send p m
+
   -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
   resolve :: a -> Process (Maybe ProcessId)
 
