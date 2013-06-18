@@ -36,6 +36,8 @@ library
                    binary >= 0.6.3.0 && < 0.8,
                    mtl,
                    containers >= 0.4 && < 0.6,
+                   hashable >= 1.2.0.5 && < 1.3,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
                    fingertree == 0.0.1.1,
                    stm >= 2.4 && < 2.5,
                    time > 1.4 && < 1.5,
@@ -54,6 +56,7 @@ library
                    Control.Distributed.Process.Platform.ManagedProcess.Server,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Priority,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted,
+                   Control.Distributed.Process.Platform.Service.Registry,
                    Control.Distributed.Process.Platform.Supervisor,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
@@ -84,12 +87,14 @@ test-suite TimerTests
                    stm >= 2.3 && < 2.5,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
+                   rematch >= 0.2.0.0,
                    transformers
   hs-source-dirs:
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  extensions:      CPP
+  extensions:      CPP,
+                   FlexibleInstances     
   main-is:         TestTimer.hs
 
 test-suite PrimitivesTests
@@ -109,6 +114,7 @@ test-suite PrimitivesTests
                    stm >= 2.3 && < 2.5,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
+                   rematch >= 0.2.0.0,
                    transformers
   hs-source-dirs:
                    src,
@@ -133,6 +139,7 @@ test-suite AsyncTests
                    stm >= 2.3 && < 2.5,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
+                   rematch >= 0.2.0.0,
                    transformers
   hs-source-dirs:
                    src,
@@ -160,6 +167,7 @@ test-suite ManagedProcessTests
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers,
+                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:
                    src,
@@ -187,6 +195,7 @@ test-suite PrioritisedProcessTests
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers,
+                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:
                    src,
@@ -197,7 +206,6 @@ test-suite PrioritisedProcessTests
 
 test-suite SupervisorTests
   type:            exitcode-stdio-1.0
---  x-uses-tf:       true
   build-depends:
                    base >= 4.4 && < 5,
                    ansi-terminal >= 0.5 && < 0.6,
@@ -218,7 +226,7 @@ test-suite SupervisorTests
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers,
-                   rematch >= 0.1.2.1,
+                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:
                    src,
@@ -226,6 +234,40 @@ test-suite SupervisorTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
   extensions:      CPP
   main-is:         TestSupervisor.hs
+
+test-suite RegistryTests
+  type:            exitcode-stdio-1.0
+--  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   containers,
+                   hashable,
+                   unordered-containers,
+                   distributed-process,
+                   distributed-static,
+                   bytestring,
+                   data-accessor,
+                   fingertree == 0.0.1.1,
+                   network-transport >= 0.3 && < 0.4,
+                   mtl,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.6.3.0 && < 0.8,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   time > 1.4 && < 1.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  extensions:      CPP
+  main-is:         TestRegistry.hs
 
 test-suite InternalQueueTests
   type:            exitcode-stdio-1.0
@@ -241,7 +283,7 @@ test-suite InternalQueueTests
                    test-framework-hunit,
                    QuickCheck >= 2.4,
                    test-framework-quickcheck2,
-                   rematch >= 0.1.2.1,
+                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:
                    src,

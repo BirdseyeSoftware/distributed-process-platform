@@ -40,7 +40,6 @@ import Control.Distributed.Process.Serializable
 
 import Data.Binary
 import Data.Typeable (Typeable)
-
 import GHC.Generics
 
 --------------------------------------------------------------------------------
@@ -75,11 +74,12 @@ instance Binary CancelWait where
 -- | Simple representation of a channel.
 type Channel a = (SendPort a, ReceivePort a)
 
--- | Used internally in whereisOrStart. Send as (RegisterSelf,ProcessId).
+-- | Used internally in whereisOrStart. Sent as (RegisterSelf,ProcessId).
 data RegisterSelf = RegisterSelf
   deriving (Typeable, Generic)
 instance Binary RegisterSelf where
 
+-- | A generalisation of /addressability/.
 data Recipient =
     Pid ProcessId
   | Registered String
