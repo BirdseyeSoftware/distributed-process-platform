@@ -63,6 +63,7 @@ library
                    Control.Distributed.Process.Platform.Timer
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
+                   Control.Distributed.Process.Platform.Internal.SerializableHashMap,
                    Control.Distributed.Process.Platform.Internal.Types,
                    Control.Distributed.Process.Platform.Internal.Queue.SeqQ,
                    Control.Distributed.Process.Platform.Internal.Queue.PriorityQ
