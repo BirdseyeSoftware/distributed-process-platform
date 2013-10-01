@@ -192,6 +192,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , ChildKey
   , ChildType(..)
   , ChildTerminationPolicy(..)
+  , ChildRun(..)
   , RegisteredName(LocalName)
   , RestartPolicy(..)
 --  , ChildRestart(..)
@@ -200,6 +201,8 @@ module Control.Distributed.Process.Platform.Supervisor
   , isRestarting
   , Child
   , StaticLabel
+  , processChildRun
+  , closureChildRun
   , start
   , run
     -- * Limits and Defaults
@@ -512,6 +515,13 @@ data RegisteredName = LocalName !String | GlobalName !String
 instance Binary RegisteredName where
 instance NFData RegisteredName where
 
+data ChildRun =
+    RunClosure !(Closure (Process ()))
+  | RunChan    !(SendPort (ChildKey, SendPort ProcessId))
+  deriving (Typeable, Generic, Show)
+instance Binary ChildRun where
+instance NFData ChildRun  where
+
 -- | Specification for a child process. The child must be uniquely identified
 -- by it's @childKey@ within the supervisor. The supervisor will start the child
 -- itself, therefore @childRun@ should contain the child process' implementation
@@ -522,7 +532,7 @@ data ChildSpec = ChildSpec {
   , childType    :: !ChildType
   , childRestart :: !RestartPolicy
   , childStop    :: !ChildTerminationPolicy
-  , childRun     :: !(Closure (Process ()))
+  , childRun     :: !ChildRun
   , childRegName :: !(Maybe RegisteredName)
   } deriving (Typeable, Generic, Show)
 instance Binary ChildSpec where
@@ -1256,47 +1266,84 @@ doStartChild spec st = do
              $ bumpStats Active (childType spec) (+1) st'
              )
 
+filterInitFailures :: ProcessId
+                   -> ProcessId
+                   -> ChildInitFailure
+                   -> Process ()
+filterInitFailures sup pid ex = do
+  case ex of
+    ChildInitFailure _ -> liftIO $ throwIO ex
+    ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq pid
+
 tryStartChild :: ChildSpec
               -> Process (Either StartFailure ChildRef)
-tryStartChild spec =
-  let proc = childRun spec in do
-    mProc <- catch (unClosure proc >>= return . Right)
-                   (\(e :: SomeException) -> return $ Left (show e))
-    case mProc of
-      Left err -> return $ Left (StartFailureBadClosure err)
-      Right p  -> wrapClosure (childRegName spec) p >>= return . Right
-  where wrapClosure :: Maybe RegisteredName
-                    -> Process ()
-                    -> Process ChildRef
-        wrapClosure regName proc = do
-           supervisor <- getSelfPid
-           pid <- spawnLocal $ do
-             self <- getSelfPid
-             link supervisor -- die if our parent dies
-             maybeRegister regName self
-             () <- expect    -- wait for a start signal (pid is still private)
-             -- we translate `ExitShutdown' into a /normal/ exit
-             (proc `catch` filterInitFailures supervisor self)
-               `catchesExit` [
-                   (\_ m -> handleMessageIf m (== ExitShutdown)
-                                              (\_ -> return ()))
-                 ]
-           void $ monitor pid
-           send pid ()
-           return $ ChildRunning pid
+tryStartChild spec = innerTryStartChild (childRun spec)
+  where
+    innerTryStartChild :: ChildRun
+                       -> Process (Either StartFailure ChildRef)
+    innerTryStartChild (RunClosure proc) = do
+      mProc <- catch (unClosure proc >>= return . Right)
+                     (\(e :: SomeException) -> return $ Left (show e))
+      case mProc of
+        Left err -> return $ Left (StartFailureBadClosure err)
+        Right p  -> wrapClosure (childRegName spec) p >>= return . Right
 
-        maybeRegister :: Maybe RegisteredName -> ProcessId -> Process ()
-        maybeRegister Nothing              _   = return ()
-        maybeRegister (Just (LocalName n)) pid = register n pid
+    innerTryStartChild (RunChan ch) =
+      wrapExtProcess (childRegName spec) ch >>= return . Right
 
-        filterInitFailures :: ProcessId
-                           -> ProcessId
-                           -> ChildInitFailure
-                           -> Process ()
-        filterInitFailures sup pid ex = do
-          case ex of
-            ChildInitFailure _ -> liftIO $ throwIO ex
-            ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq pid
+    wrapClosure :: Maybe RegisteredName
+                -> Process ()
+                -> Process ChildRef
+    wrapClosure regName proc = do
+      supervisor <- getSelfPid
+      pid <- spawnLocal $ do
+        self <- getSelfPid
+        link supervisor -- die if our parent dies
+        maybeRegister regName self
+        () <- expect    -- wait for a start signal (pid is still private)
+        -- we translate `ExitShutdown' into a /normal/ exit
+        (proc `catch` filterInitFailures supervisor self)
+          `catchesExit` [
+            (\_ m -> handleMessageIf m (== ExitShutdown)
+                                              (\_ -> return ()))]
+      void $ monitor pid
+      send pid ()
+      return $ ChildRunning pid
+
+
+    wrapExtProcess :: Maybe RegisteredName
+                   -> SendPort (ChildKey, SendPort ProcessId)
+                   -> Process ChildRef
+    wrapExtProcess regName sp = do
+      (sendPid, recvPid) <- newChan
+      sendChan sp (childKey spec, sendPid)
+      pid <- receiveChan recvPid
+      maybeRegister regName pid
+      void $ monitor pid
+      return $ ChildRunning pid
+
+    maybeRegister :: Maybe RegisteredName -> ProcessId -> Process ()
+    maybeRegister Nothing              _   = return ()
+    maybeRegister (Just (LocalName n)) pid = register n pid
+
+
+closureChildRun :: Closure (Process ()) -> ChildRun
+closureChildRun = RunClosure
+
+processChildRun :: ProcessId -> Process () -> Process ChildRun
+processChildRun supervisor proc = do
+  (sp, rp)  <- newChan
+  restarterPid <- spawnLocal $ forever $ do
+    (_ :: ChildKey, sendPidPort) <- receiveChan rp
+    supervisedPid <- spawnLocal $ do
+      self <- getSelfPid
+      (proc `catch` filterInitFailures supervisor self)
+        `catchesExit` [
+              (\_ m -> handleMessageIf m (== ExitShutdown)
+                                         (\_ -> return ()))]
+    sendChan sendPidPort supervisedPid
+  link restarterPid
+  return $ RunChan sp
 
 --------------------------------------------------------------------------------
 -- Child Termination/Shutdown                                                 --
