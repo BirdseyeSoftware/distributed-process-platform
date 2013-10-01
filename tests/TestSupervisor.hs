@@ -56,7 +56,7 @@ expectedExitReason :: ProcessId -> String
 expectedExitReason sup = "killed-by=" ++ (show sup) ++
                          ",reason=TerminatedBySupervisor"
 
-defaultWorker :: ChildRun -> ChildSpec
+defaultWorker :: ChildStart -> ChildSpec
 defaultWorker clj =
   ChildSpec
   {
@@ -68,7 +68,7 @@ defaultWorker clj =
   , childRegName = Nothing
   }
 
-tempWorker :: ChildRun -> ChildSpec
+tempWorker :: ChildStart -> ChildSpec
 tempWorker clj =
   (defaultWorker clj)
   {
@@ -76,7 +76,7 @@ tempWorker clj =
   , childRestart = Temporary
   }
 
-transientWorker :: ChildRun -> ChildSpec
+transientWorker :: ChildStart -> ChildSpec
 transientWorker clj =
   (defaultWorker clj)
   {
@@ -84,7 +84,7 @@ transientWorker clj =
   , childRestart = Transient
   }
 
-intrinsicWorker :: ChildRun -> ChildSpec
+intrinsicWorker :: ChildStart -> ChildSpec
 intrinsicWorker clj =
   (defaultWorker clj)
   {
@@ -92,7 +92,7 @@ intrinsicWorker clj =
   , childRestart = Intrinsic
   }
 
-permChild :: ChildRun -> ChildSpec
+permChild :: ChildStart -> ChildSpec
 permChild clj =
   (defaultWorker clj)
   {
@@ -209,11 +209,11 @@ normalStartStop sup = do
   sup `shouldExitWith` DiedNormal
 
 configuredTemporaryChildExitsWithIgnore ::
-     ChildRun
+     ChildStart
   -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
-configuredTemporaryChildExitsWithIgnore cr withSupervisor =
-  let spec = tempWorker cr in do
+configuredTemporaryChildExitsWithIgnore cs withSupervisor =
+  let spec = tempWorker cs in do
     withSupervisor restartOne [spec] verifyExit
   where
     verifyExit :: ProcessId -> Process ()
@@ -227,11 +227,11 @@ configuredTemporaryChildExitsWithIgnore cr withSupervisor =
           verifyTempChildWasRemoved pid sup
 
 configuredNonTemporaryChildExitsWithIgnore ::
-      ChildRun
+      ChildStart
    -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
    -> Assertion
-configuredNonTemporaryChildExitsWithIgnore cr withSupervisor =
-  let spec = transientWorker cr in do
+configuredNonTemporaryChildExitsWithIgnore cs withSupervisor =
+  let spec = transientWorker cs in do
     withSupervisor restartOne [spec] $ verifyExit spec
   where
     verifyExit :: ChildSpec -> ProcessId -> Process ()
@@ -249,18 +249,18 @@ configuredNonTemporaryChildExitsWithIgnore cr withSupervisor =
             _                           -> do
               liftIO $ assertFailure $ "unexpected lookup: " ++ (show cSpec)
 
-startTemporaryChildExitsWithIgnore :: ChildRun -> ProcessId -> Process ()
-startTemporaryChildExitsWithIgnore cr sup =
+startTemporaryChildExitsWithIgnore :: ChildStart -> ProcessId -> Process ()
+startTemporaryChildExitsWithIgnore cs sup =
   -- if a temporary child exits with "ignore" then we must
   -- have deleted its specification from the supervisor
-  let spec = tempWorker cr in do
+  let spec = tempWorker cs in do
     ChildAdded ref <- startChild sup spec
     Just pid <- resolve ref
     verifyTempChildWasRemoved pid sup
 
-startNonTemporaryChildExitsWithIgnore :: ChildRun -> ProcessId -> Process ()
-startNonTemporaryChildExitsWithIgnore cr sup =
-  let spec = transientWorker cr in do
+startNonTemporaryChildExitsWithIgnore :: ChildStart -> ProcessId -> Process ()
+startNonTemporaryChildExitsWithIgnore cs sup =
+  let spec = transientWorker cs in do
     ChildAdded ref <- startChild sup spec
     Just pid <- resolve ref
     void $ waitForExit pid
@@ -271,35 +271,35 @@ startNonTemporaryChildExitsWithIgnore cr sup =
       _                      -> do
         liftIO $ assertFailure $ "unexpected lookup: " ++ (show cSpec)
 
-addChildWithoutRestart :: ChildRun -> ProcessId -> Process ()
-addChildWithoutRestart cr sup =
-  let spec = transientWorker cr in do
+addChildWithoutRestart :: ChildStart -> ProcessId -> Process ()
+addChildWithoutRestart cs sup =
+  let spec = transientWorker cs in do
     response <- addChild sup spec
     response `shouldBe` equalTo (ChildAdded ChildStopped)
 
-setupChild :: ChildRun -> ProcessId -> Process (ChildRef, ChildSpec)
-setupChild cr sup = do
-  let spec = transientWorker cr
+setupChild :: ChildStart -> ProcessId -> Process (ChildRef, ChildSpec)
+setupChild cs sup = do
+  let spec = transientWorker cs
   response <- addChild sup spec
   response `shouldBe` equalTo (ChildAdded ChildStopped)
   Just child <- lookupChild sup "transient-worker"
   return child
 
-addDuplicateChild :: ChildRun -> ProcessId -> Process ()
-addDuplicateChild cr sup = do
-  (ref, spec) <- setupChild cr sup
+addDuplicateChild :: ChildStart -> ProcessId -> Process ()
+addDuplicateChild cs sup = do
+  (ref, spec) <- setupChild cs sup
   dup <- addChild sup spec
   dup `shouldBe` equalTo (ChildFailedToStart $ StartFailureDuplicateChild ref)
 
-startDuplicateChild :: ChildRun -> ProcessId -> Process ()
-startDuplicateChild cr sup = do
-  (ref, spec) <- setupChild cr sup
+startDuplicateChild :: ChildStart -> ProcessId -> Process ()
+startDuplicateChild cs sup = do
+  (ref, spec) <- setupChild cs sup
   dup <- startChild sup spec
   dup `shouldBe` equalTo (ChildFailedToStart $ StartFailureDuplicateChild ref)
 
-startBadClosure :: ChildRun -> ProcessId -> Process ()
-startBadClosure cr sup = do
-  let spec = tempWorker cr
+startBadClosure :: ChildStart -> ProcessId -> Process ()
+startBadClosure cs sup = do
+  let spec = tempWorker cs
   child <- startChild sup spec
   child `shouldBe` equalTo
     (ChildFailedToStart $ StartFailureBadClosure
@@ -318,16 +318,16 @@ startBadClosure cr sup = do
 --     let specs = map fst children
 --     expectThat specs $ equalTo []
 
-deleteExistingChild :: ChildRun -> ProcessId -> Process ()
-deleteExistingChild cr sup = do
-  let spec = transientWorker cr
+deleteExistingChild :: ChildStart -> ProcessId -> Process ()
+deleteExistingChild cs sup = do
+  let spec = transientWorker cs
   (ChildAdded ref) <- startChild sup spec
   result <- deleteChild sup "transient-worker"
   result `shouldBe` equalTo (ChildNotStopped ref)
 
-deleteStoppedTempChild :: ChildRun -> ProcessId -> Process ()
-deleteStoppedTempChild cr sup = do
-  let spec = tempWorker cr
+deleteStoppedTempChild :: ChildStart -> ProcessId -> Process ()
+deleteStoppedTempChild cs sup = do
+  let spec = tempWorker cs
   ChildAdded ref <- startChild sup spec
   Just pid <- resolve ref
   testProcessStop pid
@@ -336,9 +336,9 @@ deleteStoppedTempChild cr sup = do
   result <- deleteChild sup (childKey spec)
   result `shouldBe` equalTo ChildNotFound
 
-deleteStoppedChild :: ChildRun -> ProcessId -> Process ()
-deleteStoppedChild cr sup = do
-  let spec = transientWorker cr
+deleteStoppedChild :: ChildStart -> ProcessId -> Process ()
+deleteStoppedChild cs sup = do
+  let spec = transientWorker cs
   ChildAdded ref <- startChild sup spec
   Just pid <- resolve ref
   testProcessStop pid
@@ -347,66 +347,66 @@ deleteStoppedChild cr sup = do
   result <- deleteChild sup (childKey spec)
   result `shouldBe` equalTo ChildDeleted
 
-permanentChildrenAlwaysRestart :: ChildRun -> ProcessId -> Process ()
-permanentChildrenAlwaysRestart cr sup = do
-  let spec = permChild cr
+permanentChildrenAlwaysRestart :: ChildStart -> ProcessId -> Process ()
+permanentChildrenAlwaysRestart cs sup = do
+  let spec = permChild cs
   (ChildAdded ref) <- startChild sup spec
   Just pid <- resolve ref
   testProcessStop pid  -- a normal stop should *still* trigger a restart
   verifyChildWasRestarted (childKey spec) pid sup
 
-temporaryChildrenNeverRestart :: ChildRun -> ProcessId -> Process ()
-temporaryChildrenNeverRestart cr sup = do
-  let spec = tempWorker cr
+temporaryChildrenNeverRestart :: ChildStart -> ProcessId -> Process ()
+temporaryChildrenNeverRestart cs sup = do
+  let spec = tempWorker cs
   (ChildAdded ref) <- startChild sup spec
   Just pid <- resolve ref
   kill pid "bye bye"
   verifyTempChildWasRemoved pid sup
 
-transientChildrenNormalExit :: ChildRun -> ProcessId -> Process ()
-transientChildrenNormalExit cr sup = do
-  let spec = transientWorker cr
+transientChildrenNormalExit :: ChildStart -> ProcessId -> Process ()
+transientChildrenNormalExit cs sup = do
+  let spec = transientWorker cs
   (ChildAdded ref) <- startChild sup spec
   Just pid <- resolve ref
   testProcessStop pid
   verifyChildWasNotRestarted (childKey spec) pid sup
 
-transientChildrenAbnormalExit :: ChildRun -> ProcessId -> Process ()
-transientChildrenAbnormalExit cr sup = do
-  let spec = transientWorker cr
+transientChildrenAbnormalExit :: ChildStart -> ProcessId -> Process ()
+transientChildrenAbnormalExit cs sup = do
+  let spec = transientWorker cs
   (ChildAdded ref) <- startChild sup spec
   Just pid <- resolve ref
   kill pid "bye bye"
   verifyChildWasRestarted (childKey spec) pid sup
 
-transientChildrenExitShutdown :: ChildRun -> ProcessId -> Process ()
-transientChildrenExitShutdown cr sup = do
-  let spec = transientWorker cr
+transientChildrenExitShutdown :: ChildStart -> ProcessId -> Process ()
+transientChildrenExitShutdown cs sup = do
+  let spec = transientWorker cs
   (ChildAdded ref) <- startChild sup spec
   Just pid <- resolve ref
   exit pid ExitShutdown
   verifyChildWasNotRestarted (childKey spec) pid sup
 
-intrinsicChildrenAbnormalExit :: ChildRun -> ProcessId -> Process ()
-intrinsicChildrenAbnormalExit cr sup = do
-  let spec = intrinsicWorker cr
+intrinsicChildrenAbnormalExit :: ChildStart -> ProcessId -> Process ()
+intrinsicChildrenAbnormalExit cs sup = do
+  let spec = intrinsicWorker cs
   ChildAdded ref <- startChild sup spec
   Just pid <- resolve ref
   kill pid "bye bye"
   verifyChildWasRestarted (childKey spec) pid sup
 
-intrinsicChildrenNormalExit :: ChildRun -> ProcessId -> Process ()
-intrinsicChildrenNormalExit cr sup = do
-  let spec = intrinsicWorker cr
+intrinsicChildrenNormalExit :: ChildStart -> ProcessId -> Process ()
+intrinsicChildrenNormalExit cs sup = do
+  let spec = intrinsicWorker cs
   ChildAdded ref <- startChild sup spec
   Just pid <- resolve ref
   testProcessStop pid
   reason <- waitForExit sup
   expectThat reason $ equalTo DiedNormal
 
-explicitRestartRunningChild :: ChildRun -> ProcessId -> Process ()
-explicitRestartRunningChild cr sup = do
-  let spec = tempWorker cr
+explicitRestartRunningChild :: ChildStart -> ProcessId -> Process ()
+explicitRestartRunningChild cs sup = do
+  let spec = tempWorker cs
   ChildAdded ref <- startChild sup spec
   result <- restartChild sup (childKey spec)
   expectThat result $ equalTo $ ChildRestartFailed (StartFailureAlreadyRunning ref)
@@ -416,9 +416,9 @@ explicitRestartUnknownChild sup = do
   result <- restartChild sup "unknown-id"
   expectThat result $ equalTo ChildRestartUnknownId
 
-explicitRestartRestartingChild :: ChildRun -> ProcessId -> Process ()
-explicitRestartRestartingChild cr sup = do
-  let spec = permChild cr
+explicitRestartRestartingChild :: ChildStart -> ProcessId -> Process ()
+explicitRestartRestartingChild cs sup = do
+  let spec = permChild cs
   ChildAdded _ <- startChild sup spec
   -- TODO: we've seen a few explosions here (presumably of the supervisor?)
   -- expecially when running with +RTS -N1 - it's possible that there's a bug
@@ -434,9 +434,9 @@ explicitRestartRestartingChild cr sup = do
     ChildRestartFailed (StartFailureAlreadyRunning (ChildRunning _)) -> return ()
     other -> liftIO $ assertFailure $ "unexpected result: " ++ (show other)
 
-explicitRestartStoppedChild :: ChildRun -> ProcessId -> Process ()
-explicitRestartStoppedChild cr sup = do
-  let spec = transientWorker cr
+explicitRestartStoppedChild :: ChildStart -> ProcessId -> Process ()
+explicitRestartStoppedChild cs sup = do
+  let spec = transientWorker cs
   let key = childKey spec
   ChildAdded ref <- startChild sup spec
   void $ terminateChild sup key
@@ -448,9 +448,9 @@ explicitRestartStoppedChild cr sup = do
     ChildRestartOk (ChildRunning _) -> return ()
     _ -> liftIO $ assertFailure $ "unexpected termination: " ++ (show restarted)
 
-terminateChildImmediately :: ChildRun -> ProcessId -> Process ()
-terminateChildImmediately cr sup = do
-  let spec = tempWorker cr
+terminateChildImmediately :: ChildStart -> ProcessId -> Process ()
+terminateChildImmediately cs sup = do
+  let spec = tempWorker cs
   ChildAdded ref <- startChild sup spec
 --  Just pid <- resolve ref
   mRef <- monitor ref
@@ -481,11 +481,11 @@ terminatingChildObeysDelay sup = do
   child `shouldExitWith` DiedNormal
 
 restartAfterThreeAttempts ::
-     ChildRun
+     ChildStart
   -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
-restartAfterThreeAttempts cr withSupervisor = do
-  let spec = permChild cr
+restartAfterThreeAttempts cs withSupervisor = do
+  let spec = permChild cs
   let strategy = RestartOne $ limit (maxRestarts 500) (seconds 2)
   withSupervisor strategy [spec] $ \sup -> do
     mapM_ (\_ -> do
@@ -527,11 +527,11 @@ delayedRestartAfterThreeAttempts withSupervisor = do
 -}
 
 permanentChildExceedsRestartsIntensity ::
-     ChildRun
+     ChildStart
   -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
-permanentChildExceedsRestartsIntensity cr withSupervisor = do
-  let spec = permChild cr  -- child that exits immediately
+permanentChildExceedsRestartsIntensity cs withSupervisor = do
+  let spec = permChild cs  -- child that exits immediately
   let strategy = RestartOne $ limit (maxRestarts 50) (seconds 2)
   withSupervisor strategy [spec] $ \sup -> do
     ref <- monitor sup
@@ -545,11 +545,11 @@ permanentChildExceedsRestartsIntensity cr withSupervisor = do
                                       ",reason=ReachedMaxRestartIntensity"
 
 terminateChildIgnoresSiblings ::
-     ChildRun
+     ChildStart
   -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
-terminateChildIgnoresSiblings cr withSupervisor = do
-  let templ = permChild cr
+terminateChildIgnoresSiblings cs withSupervisor = do
+  let templ = permChild cs
   let specs = [templ { childKey = (show i) } | i <- [1..3 :: Int]]
   withSupervisor restartAll specs $ \sup -> do
     let toStop = childKey $ head specs
@@ -562,11 +562,11 @@ terminateChildIgnoresSiblings cr withSupervisor = do
       maybe (error "invalid ref") ensureProcessIsAlive =<< resolve cRef
 
 restartAllWithLeftToRightSeqRestarts ::
-     ChildRun
+     ChildStart
   -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
-restartAllWithLeftToRightSeqRestarts cr withSupervisor = do
-  let templ = permChild cr
+restartAllWithLeftToRightSeqRestarts cs withSupervisor = do
+  let templ = permChild cs
   let specs = [templ { childKey = (show i) } | i <- [1..100 :: Int]]
   withSupervisor restartAll specs $ \sup -> do
     let toStop = childKey $ head specs
@@ -582,11 +582,11 @@ restartAllWithLeftToRightSeqRestarts cr withSupervisor = do
       maybe (error "invalid ref") ensureProcessIsAlive =<< resolve ref'
 
 restartLeftWithLeftToRightSeqRestarts ::
-     ChildRun
+     ChildStart
   -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
-restartLeftWithLeftToRightSeqRestarts cr withSupervisor = do
-  let templ = permChild cr
+restartLeftWithLeftToRightSeqRestarts cs withSupervisor = do
+  let templ = permChild cs
   let specs = [templ { childKey = (show i) } | i <- [1..500 :: Int]]
   withSupervisor restartLeft specs $ \sup -> do
     let (toRestart, _notToRestart) = splitAt 100 specs
@@ -613,11 +613,11 @@ restartLeftWithLeftToRightSeqRestarts cr withSupervisor = do
     expectThat r isNothing
 
 restartRightWithLeftToRightSeqRestarts ::
-     ChildRun
+     ChildStart
   -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
-restartRightWithLeftToRightSeqRestarts cr withSupervisor = do
-  let templ = permChild cr
+restartRightWithLeftToRightSeqRestarts cs withSupervisor = do
+  let templ = permChild cs
   let specs = [templ { childKey = (show i) } | i <- [1..50 :: Int]]
   withSupervisor restartRight specs $ \sup -> do
     let (_notToRestart, toRestart) = splitAt 40 specs
@@ -784,9 +784,9 @@ expectRightToLeftRestarts sup = do
   Just pid' <- resolve ref'
   drainChildren children' pid'
 
-restartLeftWhenLeftmostChildDies :: ChildRun -> ProcessId -> Process ()
-restartLeftWhenLeftmostChildDies cr sup = do
-  let spec = permChild cr
+restartLeftWhenLeftmostChildDies :: ChildStart -> ProcessId -> Process ()
+restartLeftWhenLeftmostChildDies cs sup = do
+  let spec = permChild cs
   (ChildAdded ref) <- startChild sup spec
   (ChildAdded ref2) <- startChild sup $ spec { childKey = "child2" }
   Just pid <- resolve ref
@@ -797,9 +797,9 @@ restartLeftWhenLeftmostChildDies cr sup = do
   Just pid2' <- resolve ref3
   pid2 `shouldBe` equalTo pid2'
 
-restartRightWhenRightmostChildDies :: ChildRun -> ProcessId -> Process ()
-restartRightWhenRightmostChildDies cr sup = do
-  let spec = permChild cr
+restartRightWhenRightmostChildDies :: ChildStart -> ProcessId -> Process ()
+restartRightWhenRightmostChildDies cs sup = do
+  let spec = permChild cs
   (ChildAdded ref2) <- startChild sup $ spec { childKey = "child2" }
   (ChildAdded ref) <- startChild sup $ spec { childKey = "child1" }
   [ch1, ch2] <- listChildren sup
@@ -944,18 +944,18 @@ restartLeftWithRightToLeftRestarts sup = do
 myRemoteTable :: RemoteTable
 myRemoteTable = Main.__remoteTable initRemoteTable
 
-withClosure :: (ChildRun -> ProcessId -> Process ())
+withClosure :: (ChildStart -> ProcessId -> Process ())
             -> (Closure (Process ()))
             -> (ProcessId -> Process ())
-withClosure fn clj = fn (RunClosure clj)
+withClosure fn clj = fn (closureToChildStart clj)
 
-withChan :: (ChildRun -> ProcessId -> Process ())
+withChan :: (ChildStart -> ProcessId -> Process ())
          -> Process ()
          -> ProcessId
          -> Process ()
 withChan fn proc supervisor = do
-    cr <- processChildRun supervisor proc
-    fn cr supervisor
+    cs <- processToChildStart supervisor proc
+    fn cs supervisor
 
 tests :: NT.Transport -> IO [Test]
 tests transport = do
