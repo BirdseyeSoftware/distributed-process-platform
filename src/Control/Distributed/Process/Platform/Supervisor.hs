@@ -518,7 +518,7 @@ instance NFData RegisteredName where
 
 data ChildStart =
     RunClosure !(Closure (Process ()))
-  | StartChan  !(SendPort (ChildKey, SendPort ProcessId))
+  | StartChan  !ProcessId !(SendPort (ChildKey, SendPort ProcessId))
   deriving (Typeable, Generic, Show)
 instance Binary ChildStart where
 instance NFData ChildStart  where
@@ -533,7 +533,7 @@ data ChildSpec = ChildSpec {
   , childType    :: !ChildType
   , childRestart :: !RestartPolicy
   , childStop    :: !ChildTerminationPolicy
-  , childRun     :: !ChildStart
+  , childStart   :: !ChildStart
   , childRegName :: !(Maybe RegisteredName)
   } deriving (Typeable, Generic, Show)
 instance Binary ChildSpec where
@@ -637,6 +637,7 @@ data RestartChildResult =
   | ChildRestartUnknownId
   | ChildRestartIgnored
   deriving (Typeable, Generic, Show, Eq)
+
 instance Binary RestartChildResult where
 instance NFData RestartChildResult where
 
@@ -1270,14 +1271,15 @@ doStartChild spec st = do
 tryStartChild :: ChildSpec
               -> Process (Either StartFailure ChildRef)
 tryStartChild spec =
-    case (childRun spec) of
+    case (childStart spec) of
       RunClosure proc -> do
         mProc <- catch (unClosure proc >>= return . Right)
                        (\(e :: SomeException) -> return $ Left (show e))
         case mProc of
           Left err -> return $ Left (StartFailureBadClosure err)
           Right p  -> wrapClosure (childRegName spec) p >>= return . Right
-      StartChan ch -> wrapChanProcess (childRegName spec) ch >>= return . Right
+      StartChan restarterPid ch ->
+          wrapChanProcess (childRegName spec) restarterPid ch
   where
     wrapClosure :: Maybe RegisteredName
                 -> Process ()
@@ -1293,22 +1295,33 @@ tryStartChild spec =
         (proc `catch` filterInitFailures supervisor self)
           `catchesExit` [
             (\_ m -> handleMessageIf m (== ExitShutdown)
-                                              (\_ -> return ()))]
+                                       (\_ -> return ()))]
       void $ monitor pid
       send pid ()
       return $ ChildRunning pid
 
 
     wrapChanProcess :: Maybe RegisteredName
-                   -> SendPort (ChildKey, SendPort ProcessId)
-                   -> Process ChildRef
-    wrapChanProcess regName sp = do
+                    -> ProcessId
+                    -> SendPort (ChildKey, SendPort ProcessId)
+                    -> Process (Either StartFailure ChildRef)
+    wrapChanProcess regName restarterPid sp = do
+      ref <- monitor restarterPid
       (sendPid, recvPid) <- newChan
       sendChan sp (childKey spec, sendPid)
-      pid <- receiveChan recvPid
-      maybeRegister regName pid
-      void $ monitor pid
-      return $ ChildRunning pid
+      ePid <- receiveWait [
+                matchChan recvPid (\(p :: ProcessId) -> return $ Right p)
+              , matchIf (\(ProcessMonitorNotification mref _ dr) -> mref == ref && dr /= DiedNormal)
+                        (\(ProcessMonitorNotification _ _ dr) -> return $ Left dr)
+              ] `finally` (unmonitor ref)
+      case ePid of
+        Right pid -> do
+          maybeRegister regName pid
+          void $ monitor pid
+          return $ Right $ ChildRunning pid
+        Left dr -> return $ Left $ StartFailureDied dr
+
+    handleHelperFailure _ = return ()
 
     maybeRegister :: Maybe RegisteredName -> ProcessId -> Process ()
     maybeRegister Nothing              _   = return ()
@@ -1330,7 +1343,7 @@ closureToChildStart = RunClosure
 processToChildStart :: ProcessId -> Process () -> Process ChildStart
 processToChildStart supervisor proc = do
   (sp, rp)  <- newChan
-  void $ spawnLocal $ forever $ do
+  restarterPid <- spawnLocal $ forever $ do
     (_ :: ChildKey, sendPidPort) <- receiveChan rp
     supervisedPid <- spawnLocal $ do
       link supervisor
@@ -1340,7 +1353,7 @@ processToChildStart supervisor proc = do
               (\_ m -> handleMessageIf m (== ExitShutdown)
                                          (\_ -> return ()))]
     sendChan sendPidPort supervisedPid
-  return $ StartChan sp
+  return $ StartChan restarterPid sp
 
 --------------------------------------------------------------------------------
 -- Child Termination/Shutdown                                                 --

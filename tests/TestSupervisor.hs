@@ -64,7 +64,7 @@ defaultWorker clj =
   , childType    = Worker
   , childRestart = Temporary
   , childStop    = TerminateImmediately
-  , childRun     = clj
+  , childStart   = clj
   , childRegName = Nothing
   }
 
