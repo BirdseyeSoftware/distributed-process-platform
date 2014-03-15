@@ -198,7 +198,7 @@
 -- typeclass is provided. This latter approach requires the expression which is
 -- responsible for yielding the @Addressable@ handle to handling linking the
 -- target process with the supervisor, since we have delegated responsibility
--- for spawning the new process and cannot perform the link oepration ourselves.
+-- for spawning the new process and cannot perform the link operation ourselves.
 --
 -- [Supervision Trees & Supervisor Termination]
 --
