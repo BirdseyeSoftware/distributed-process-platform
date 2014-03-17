@@ -1255,6 +1255,9 @@ tryRestart :: ProcessId
            -> DiedReason
            -> Process (ProcessAction State)
 tryRestart pid state active' spec reason = do
+  CM.mxNotify
+    $ CM.MxLog
+    $ mkReport "tryRestart" pid (childKey spec) (show reason)
   case state ^. strategy of
     RestartOne _ -> tryRestartChild pid state active' spec reason
     strat        -> do
