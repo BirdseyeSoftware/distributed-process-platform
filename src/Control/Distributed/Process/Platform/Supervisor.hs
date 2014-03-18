@@ -1698,7 +1698,7 @@ doTerminateChild ref spec state = do
   case mPid of
     Nothing  -> return state -- an already dead child is not an error
     Just pid -> do
-      stopped <- childShutdown spec pid state
+      stopped <- childShutdown (childStop spec) pid state
       state' <- shutdownComplete state pid stopped
       return $ ( (active ^: Map.delete pid)
                $ state'
@@ -1712,47 +1712,36 @@ doTerminateChild ref spec state = do
     chKey         = childKey spec
     updateStopped = maybe state id $ updateChild chKey (setChildStopped False) state
 
-
-childShutdown :: ChildSpec
+childShutdown :: ChildTerminationPolicy
               -> ProcessId
               -> State
               -> Process DiedReason
-childShutdown spec pid st = do
-    case childStart spec of
-      (StarterProcess restarterPid) ->
-         -- NOTE: the childProcess is not linked to
-         -- the restarterProcess, therefore this is safe
-         -- to do.
-         kill restarterPid "TerminatedBySupervisor"
-      _ -> return ()
-    _childShutdown (childStop spec) pid st
+childShutdown policy pid st = do
+  case policy of
+    (TerminateTimeout t) -> exit pid ExitShutdown >> await pid t st
+    -- we ignore DiedReason for brutal kills
+    TerminateImmediately -> do
+      kill pid "TerminatedBySupervisor"
+      void $ await pid Infinity st
+      return DiedNormal
   where
-    _childShutdown policy pid st = do
-      case policy of
-        (TerminateTimeout t) -> exit pid ExitShutdown >> await pid t st
-        -- we ignore DiedReason for brutal kills
-        TerminateImmediately -> do
-          kill pid "TerminatedBySupervisor"
-          void $ await pid Infinity st
-          return DiedNormal
-      where
-        await :: ProcessId -> Delay -> State -> Process DiedReason
-        await pid' delay state = do
-          let monitored = (Map.member pid' $ state ^. active)
-          let recv = case delay of
-                       Infinity -> receiveWait (matches pid') >>= return . Just
-                       NoDelay  -> receiveTimeout 0 (matches pid')
-                       Delay t  -> receiveTimeout (asTimeout t) (matches pid')
-          -- we set up an additional monitor here, since child shutdown can occur
-          -- during a restart which was triggered by the /old/ monitor signal
-          let recv' =  if monitored then recv else withMonitor pid' recv
-          recv' >>= maybe (_childShutdown TerminateImmediately pid' state) return
+    await :: ProcessId -> Delay -> State -> Process DiedReason
+    await pid' delay state = do
+      let monitored = (Map.member pid' $ state ^. active)
+      let recv = case delay of
+                   Infinity -> receiveWait (matches pid') >>= return . Just
+                   NoDelay  -> receiveTimeout 0 (matches pid')
+                   Delay t  -> receiveTimeout (asTimeout t) (matches pid')
+      -- we set up an additional monitor here, since child shutdown can occur
+      -- during a restart which was triggered by the /old/ monitor signal
+      let recv' =  if monitored then recv else withMonitor pid' recv
+      recv' >>= maybe (childShutdown TerminateImmediately pid' state) return
 
-        matches :: ProcessId -> [Match DiedReason]
-        matches p = [
-              matchIf (\(ProcessMonitorNotification _ p' _) -> p == p')
-                      (\(ProcessMonitorNotification _ _ r) -> return r)
-            ]
+    matches :: ProcessId -> [Match DiedReason]
+    matches p = [
+          matchIf (\(ProcessMonitorNotification _ p' _) -> p == p')
+                  (\(ProcessMonitorNotification _ _ r) -> return r)
+        ]
 
 --------------------------------------------------------------------------------
 -- Loging/Reporting                                                          --
