@@ -1039,7 +1039,7 @@ processDefinition =
        -- adding, removing and (optionally) starting new child specs
      , handleCall              handleTerminateChild
 --     , handleCast              handleDelayedRestart
-     , Restricted.handleCall   handleDeleteChild
+     , handleCall   handleDeleteChild
      , Restricted.handleCallIf (input (\(AddChild immediate _) -> not immediate))
                                handleAddChild
      , handleCall              handleStartNewChild
@@ -1096,26 +1096,38 @@ handleIgnore (IgnoreChildReq pid) = do
     resetChildIgnored key state =
       maybe state id $ updateChild key (setChildStopped True) state
 
-handleDeleteChild :: DeleteChild
-                  -> RestrictedProcess State (Result DeleteChildResult)
-handleDeleteChild (DeleteChild k) = getState >>= handleDelete k
+handleDeleteChild :: State
+                  -> DeleteChild
+                  -> Process (ProcessReply DeleteChildResult State)
+handleDeleteChild st0 (DeleteChild k) = handleDelete k st0
   where
     handleDelete :: ChildKey
                  -> State
-                 -> RestrictedProcess State (Result DeleteChildResult)
-    handleDelete key state =
+                 -> Process (ProcessReply DeleteChildResult State)
+    handleDelete key st =
       let (prefix, suffix) = Seq.breakl ((== key) . childKey . snd) $ state ^. specs
       in case (Seq.viewl suffix) of
-           EmptyL             -> Restricted.reply ChildNotFound
-           child :< remaining -> tryDeleteChild child prefix remaining state
+           EmptyL             -> reply ChildNotFound st
+           child :< remaining -> tryDeleteChild child prefix remaining st
 
     tryDeleteChild (ref, spec) pfx sfx st
       | ref == ChildStopped = do
-          putState $ ( (specs ^= pfx >< sfx)
-                     $ bumpStats Specified (childType spec) decrement st
-                     )
-          Restricted.reply ChildDeleted
-      | otherwise = Restricted.reply $ ChildNotStopped ref
+          removeRestarterProcess spec
+          let st' = ( (specs ^= pfx >< sfx)
+                       $ bumpStats Specified (childType spec) decrement st
+                       )
+          reply ChildDeleted st'
+      | otherwise = reply (ChildNotStopped ref) st
+
+    removeRestarterProcess :: ChildSpec -> Process ()
+    removeRestarterProcess spec = case childStart spec of
+      (StarterProcess restarterPid) ->
+         -- NOTE: the childProcess is not linked to
+         -- the restarterProcess, therefore this is safe
+         -- to do.
+         kill restarterPid "TerminatedBySupervisor"
+      _ -> return ()
+
 
 handleStartChild :: State
                  -> StartChildReq
