@@ -1114,7 +1114,7 @@ handleDeleteChild st0 (DeleteChild k) = handleDelete k st0
                  -> State
                  -> Process (ProcessReply DeleteChildResult State)
     handleDelete key st =
-      let (prefix, suffix) = Seq.breakl ((== key) . childKey . snd) $ state ^. specs
+      let (prefix, suffix) = Seq.breakl ((== key) . childKey . snd) $ st ^. specs
       in case (Seq.viewl suffix) of
            EmptyL             -> reply ChildNotFound st
            child :< remaining -> tryDeleteChild child prefix remaining st
