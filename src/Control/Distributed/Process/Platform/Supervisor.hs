@@ -719,7 +719,7 @@ injectIt proc' supervisor sendPidPort = do
   addr <- proc' supervisor
   mPid <- resolve addr
   case mPid of
-    Nothing -> die "UnresolvableAddress"
+    Nothing -> die "UnresolvableAddress in startChild instance"
     Just p  -> sendChan sendPidPort p
 
 expectTriple :: Process (ProcessId, ChildKey, SendPort ProcessId)
@@ -1524,7 +1524,7 @@ doStartChild spec st = do
       let mState = updateChild chKey (chRunning p) st
       case mState of
         -- TODO: better error message if the child is unrecognised
-        Nothing -> die "InternalError"
+        Nothing -> die $ "InternalError in doStartChild " ++ show spec
         Just s' -> return $ Right $ (p, markActive s' p spec)
   where
     chKey = childKey spec
